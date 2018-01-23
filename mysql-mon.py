@@ -58,7 +58,7 @@ METRICS = {
 
 try:
     ES_CLIENT = Elasticsearch(conf['elasticsearch']['hosts'], **conf['elasticsearch']['args'])
-except Exception, e:
+except Exception as e:
     logger.error('Unable to connect to ES Cluster, reason: %s' % (e))
     sys.exit(1)
 
@@ -70,7 +70,7 @@ def establish_db_conn(db_connection):
         db = pymysql.connect(host=db_connection['host'], port=db_connection['port'], user=db_connection['username'], passwd=db_connection['password'], db=db_connection.get('db', 'information_schema'))
         dbc = db.cursor(pymysql.cursors.DictCursor)
         return db, dbc
-    except Exception, e:
+    except Exception as e:
         logger.exception('Cant establish a connection to the DB: %s, reason: %s' % ( db_connection['name'], e ))
     
 '''
@@ -95,7 +95,7 @@ def get_mysql_status(dbc):
     try:
         dbc.execute(STATUS_QUERY)
         return normalize_mysql_var_val(dbc.fetchall(), 'Variable_name', 'Value')
-    except Exception, e:
+    except Exception as e:
         logger.exception('Unable to run query - "show status" - reason: %s' % (e))
 
 def get_mysql_variables(dbc):
@@ -256,7 +256,6 @@ def main():
     #TODO: Shore this up, catch a more targeted exception once worker function is proofed.
     #Basically this should be a block you can only hit via threading OS level exceptions if we proof the worker func
     except Exception as e:
-        #log('error', 'Caught exception in main!', is_exception = True)
         logger.exception('Caught exception in main!') 
         # Clean up any zombie threads hanging around
         pool.terminate()
