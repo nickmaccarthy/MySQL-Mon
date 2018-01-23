@@ -111,7 +111,7 @@ def get_mysql_variables(dbc):
 def normalize_mysql_conn_stats(s1, s2):
     try:
         data_dict = {}
-        for friendly_name, mysql_name in METRICS.iteritems():
+        for friendly_name, mysql_name in METRICS.items():
             data_dict[friendly_name] = int(s2[mysql_name]) - int(s1[mysql_name])
 
         data_dict['Threads_running'] = int(s2.get('Threads_running'))
