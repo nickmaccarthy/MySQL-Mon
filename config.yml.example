@@ -1,0 +1,23 @@
+elasticsearch:
+    hosts:
+        - http://user:password@elasticsearch.some.company.com:9200
+    args:
+        use_ssl: False
+        verify_certs: False
+
+
+db_conns:
+  -   
+    name: mydb1
+    host: 172.16.22.22
+    username: myusername
+    password: p@ssw0rd
+- 
+    name: anotherdb
+    host: 10.2.2.26
+    username: some_read_only_user
+    password: iL1keTurTle5!
+
+
+# seconds between runs/samples
+interval: 10
