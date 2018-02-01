@@ -26,7 +26,7 @@ logging.basicConfig(format="%(asctime)s - %(name)s - [ %(levelname)s ] - [ %(fil
 logger = logging.getLogger(__name__)
 
 PROCESSLIST_QUERY = 'SHOW FULL PROCESSLIST'
-STATUS_QUERY = 'SHOW STATUS'
+STATUS_QUERY = 'SHOW GLOBAL STATUS'
 SHOW_VARIABLES_QUERY = 'SHOW variables LIKE \'%max%\''
 CONNECTION_PERCENTAGE_QUERY = """
 SELECT ROUND( ( pl.threads_connected / gv.max_connections ) * 100, 2) as percentage_used_connections FROM
@@ -56,11 +56,19 @@ METRICS = {
     'Com_update_per_second' : 'Com_update',
 }
 
+
 try:
+    logger.info('Establishing Elasticseach connection to: %s' % conf['elasticsearch']['hosts'])
     ES_CLIENT = Elasticsearch(conf['elasticsearch']['hosts'], **conf['elasticsearch']['args'])
+    logger.info('ES connection established... status: %s' % (ES_CLIENT.cluster.health()))
 except Exception as e:
     logger.error('Unable to connect to ES Cluster, reason: %s' % (e))
     sys.exit(1)
+
+from autocast import autocast
+@autocast 
+def castit(item):
+    return item
 
 '''
     Gets a connection and a cursor to our database
@@ -78,7 +86,7 @@ def establish_db_conn(db_connection):
 '''
 def getindex():
     now = datetime.datetime.utcnow().strftime('%Y.%m.%d')
-    index_name = 'mysql-mon-{0}'.format(now)
+    index_name = '{index_name}-{date}'.format(index_name=conf.get('index_name', 'mysql-mon'), date=now)
     return index_name
 
 '''
@@ -96,7 +104,7 @@ def get_mysql_status(dbc):
         dbc.execute(STATUS_QUERY)
         return normalize_mysql_var_val(dbc.fetchall(), 'Variable_name', 'Value')
     except Exception as e:
-        logger.exception('Unable to run query - "show status" - reason: %s' % (e))
+        logger.exception('Unable to run query - "%s" - reason: %s' % (STATUS_QUERY, e))
 
 def get_mysql_variables(dbc):
     try:
@@ -126,6 +134,19 @@ def normalize_mysql_conn_stats(s1, s2):
 
     return data_dict
 
+'''
+    Prints a list or dictionary as pretty JSON, usefule for debugging
+'''
+def json_print(ourobj):
+    import json 
+    print json.dumps(ourobj, indent=4)
+
+def autocast_global_status(statusd):
+    for k,v in statusd.items():
+        #if k in ('Innodb_row_lock_current_waits', 'Ssl_ctx_verify_depth' ): continue
+        if k in ('Ssl_ctx_verify_depth'): continue 
+        statusd[k] = castit(v)
+    return statusd
 
 def worker(dbconn):
     try:
@@ -141,19 +162,30 @@ def worker(dbconn):
         s2 = get_mysql_status(dbc)
 
         # mysql status
-        #TODO: Can we rename _type to doc_type? I think so, but later in the loop we have it expressly as a key in data_dict
-        _type = 'mysql-connection-stats'
         data_dict = {'@timestamp' : datetime.datetime.utcnow().isoformat(),
                      'host' : name,
-                     'type' : _type,
+                     'type' : 'mysql-connection-stats',
                      'hostname' : name,
                      'db_host': name,
                      'connection_name': name,
                      'connection_hostname': dbconn['host'],
-                     _type : normalize_mysql_conn_stats(s1, s2)}
-
-        index_it = ES_CLIENT.index(index=getindex(), doc_type=_type, body=data_dict)
+                     'mysql-connection-stats' : normalize_mysql_conn_stats(s1, s2)}
+        index_it = ES_CLIENT.index(index=getindex(), doc_type='mysql-connection-stats', body=data_dict)
         logger.info('%s - mysql-connection-stats ran: %s' % (name, index_it))
+
+        # global status raw 
+        global_status = get_mysql_status(dbc) 
+        data_dict = {
+            '@timestamp' : datetime.datetime.utcnow().isoformat(),
+            'host' : name,
+            'type' : 'global-status',
+            'hostname' : name,
+            'db_host': name,
+            'connection_name': name,
+            'connection_hostname': dbconn['host'],
+            'global-status': autocast_global_status(global_status)}
+        index_it = ES_CLIENT.index(index=getindex(), doc_type='show-global-status', body=data_dict)
+        logger.info('%s - global-status ran: %s' % (name, index_it))
 
         # Processlist
         processlist_events = []
@@ -177,7 +209,6 @@ def worker(dbconn):
                 'connection_hostname': dbconn['host'],
                 'plist' : dict(r)
             }
-
 
             if r['Info'] is not None:
                 # short_query is the first 100 bytes of our full query, useful for aggregating a bunch of similar queries that might be an issue
