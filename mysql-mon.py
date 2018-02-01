@@ -143,8 +143,9 @@ def json_print(ourobj):
 
 def autocast_global_status(statusd):
     for k,v in statusd.items():
-        #if k in ('Innodb_row_lock_current_waits', 'Ssl_ctx_verify_depth' ): continue
-        if k in ('Ssl_ctx_verify_depth'): continue 
+        # skipping these for now, they can have very large INT's which cause ES to key error on BIG_INTEGER
+        # todo: check the value after its been casted and see the length and do something about it if its a BIGINT
+        if k in ('Innodb_row_lock_current_waits', 'Ssl_ctx_verify_depth' ): continue
         statusd[k] = castit(v)
     return statusd
 
