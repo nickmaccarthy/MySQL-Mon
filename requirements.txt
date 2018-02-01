@@ -19,6 +19,7 @@ pycassa==1.11.2
 Pygments==2.2.0
 PyMySQL==0.7.10
 pyparsing==2.2.0
+python-autocast==1
 python-datemath==1.4.5
 python-dateutil==2.6.0
 PyYAML==3.12

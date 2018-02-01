@@ -21,3 +21,7 @@ db_conns:
 
 # seconds between runs/samples
 interval: 10
+
+# Target ES Index name where you want metrics to be stored
+# Note that mysql-mon will append the datestamps to the index name, so do not specify that here
+es_index_name: mysql-mon
