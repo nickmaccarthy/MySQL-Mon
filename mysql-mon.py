@@ -139,7 +139,7 @@ def normalize_mysql_conn_stats(s1, s2):
 '''
 def json_print(ourobj):
     import json 
-    print json.dumps(ourobj, indent=4)
+    print(json.dumps(ourobj, indent=4))
 
 def autocast_global_status(statusd):
     for k,v in statusd.items():
