@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 PROCESSLIST_QUERY = 'SHOW FULL PROCESSLIST'
 STATUS_QUERY = 'SHOW GLOBAL STATUS'
+SLAVE_STATUS_QUERY = 'SHOW SLAVE STATUS'
 SHOW_VARIABLES_QUERY = 'SHOW variables LIKE \'%max%\''
 CONNECTION_PERCENTAGE_QUERY = """
 SELECT ROUND( ( pl.threads_connected / gv.max_connections ) * 100, 2) as percentage_used_connections FROM
@@ -106,6 +107,18 @@ def get_mysql_status(dbc):
     except Exception as e:
         logger.exception('Unable to run query - "%s" - reason: %s' % (STATUS_QUERY, e))
 
+'''
+    gets the slave status if we are slave, otherwise we will return none if we arent
+'''
+def get_slave_status(dbc):
+    try:
+        dbc.execute(SLAVE_STATUS_QUERY)
+        results = dbc.fetchone()
+        if results and len(results) > 0:
+            return results
+    except Exception as e:
+        return None
+
 def get_mysql_variables(dbc):
     try:
         dbc.execute(SHOW_VARIABLES_QUERY)
@@ -166,12 +179,13 @@ def worker(dbconn):
         data_dict = {'@timestamp' : datetime.datetime.utcnow().isoformat(),
                      'host' : name,
                      'type' : 'mysql-connection-stats',
+                     'doctype': 'mysql-connection-stats',
                      'hostname' : name,
                      'db_host': name,
                      'connection_name': name,
                      'connection_hostname': dbconn['host'],
                      'mysql-connection-stats' : normalize_mysql_conn_stats(s1, s2)}
-        index_it = ES_CLIENT.index(index=getindex(), doc_type='mysql-connection-stats', body=data_dict)
+        index_it = ES_CLIENT.index(index=getindex(), doc_type='doc', body=data_dict)
         logger.info('%s - mysql-connection-stats ran: %s' % (name, index_it))
 
         # global status raw 
@@ -180,12 +194,13 @@ def worker(dbconn):
             '@timestamp' : datetime.datetime.utcnow().isoformat(),
             'host' : name,
             'type' : 'global-status',
+            'doctype': 'global-status',
             'hostname' : name,
             'db_host': name,
             'connection_name': name,
             'connection_hostname': dbconn['host'],
             'global-status': autocast_global_status(global_status)}
-        index_it = ES_CLIENT.index(index=getindex(), doc_type='show-global-status', body=data_dict)
+        index_it = ES_CLIENT.index(index=getindex(), doc_type='doc', body=data_dict)
         logger.info('%s - global-status ran: %s' % (name, index_it))
 
         # Processlist
@@ -201,7 +216,9 @@ def worker(dbconn):
 
             data_dict = {
                 '@timestamp': datetime.datetime.utcnow().isoformat(),
-                '_type' : 'processlist',
+                '_type' : 'doc',
+                'type': 'processlist',
+                'doctype':'processlist',
                 '_index' : getindex(),
                 'host' : str(name),
                 'db_host': str(name),
@@ -247,7 +264,15 @@ def worker(dbconn):
                 data_dict['plist']['QueryTable'] = table
                 data_dict['plist']['Table'] = table
 
-            src_host, src_port = r.get('Host', '0.0.0.0:0').split(':')
+            host = r.get('Host')
+            if host and ':' in host:
+                src_host, src_port = host.split(':')
+                data_dict['plist']['src_host'] = src_host
+                data_dict['plist']['src_port'] = src_port
+                data_dict['plist']['host'] = host
+            elif host:
+                data_dict['plist']['host'] = host
+
             processlist_events.append(data_dict)
 
         index_processlist = helpers.bulk(ES_CLIENT, processlist_events)
@@ -257,14 +282,32 @@ def worker(dbconn):
         logger.info('%s - I found %s sleep(s)' % (name, sleeps))
 
         # index the sleep number
-        ES_CLIENT.index(index=getindex(), doc_type='processlist', body={'@timestamp': datetime.datetime.utcnow().isoformat(), 'host': name, 'hostname': name, 'sleeping_connections': sleeps})
+        ES_CLIENT.index(index=getindex(), doc_type='doc', body={'@timestamp': datetime.datetime.utcnow().isoformat(), 'doctype': 'processlist', 'type': 'processlist', 'host': name, 'hostname': name, 'sleeping_connections': sleeps})
 
         # Connection percentage
         dbc.execute(CONNECTION_PERCENTAGE_QUERY)
         connection_pctg = float(dbc.fetchall()[0]['percentage_used_connections'])
         logger.info('%s - Connection Percentage is %s' % (name, connection_pctg))
 
-        index_it = ES_CLIENT.index(index=getindex(), doc_type='mysql-connection-stats', body={'@timestamp': datetime.datetime.utcnow().isoformat(), 'host': name, 'hostname': name, 'connection_percentage': connection_pctg})
+        index_it = ES_CLIENT.index(index=getindex(), doc_type='doc', body={'@timestamp': datetime.datetime.utcnow().isoformat(), 'doctype': 'mysql-connection-stats', 'type': 'mysql-connection-stats', 'host': name, 'hostname': name, 'connection_percentage': connection_pctg})
+
+        slave_status = get_slave_status(dbc)
+
+        if slave_status and len(slave_status) > 0: 
+            data_dict = {
+                '@timestamp': datetime.datetime.utcnow().isoformat(),
+                'type': 'slave-status',
+                'doctype':'slave-status',
+                'host' : str(name),
+                'db_host': str(name),
+                'hostname' : str(name),
+                'connection_name': name,
+                'connection_hostname': dbconn['host'],
+                'slave_status' : dict(slave_status)
+            }
+            index_it = ES_CLIENT.index(index=getindex(), doc_type='docl', body=data_dict)
+            if index_it:
+                logger.info("Slave Status events indexed")
 
         db.close()
         end_time = time.clock()
