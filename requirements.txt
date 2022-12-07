@@ -2,7 +2,7 @@ appdirs==1.4.3
 appnope==0.1.0
 arrow==0.10.0
 backports.shutil-get-terminal-size==1.0.0
-certifi==2017.1.23
+certifi==2022.12.7
 decorator==4.0.11
 elasticsearch==5.2.0
 enum34==1.1.6
